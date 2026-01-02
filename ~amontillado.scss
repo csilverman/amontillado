@@ -1,0 +1,218 @@
+@use "sass:list";
+@use "sass:color";
+@use "sass:map";
+
+/// --- FONT MAPS -------------------------------------------------------------
+
+$serif: (
+  family: "Georgia, serif",
+
+  size: (
+    small: 1.1rem,
+    regular: 1.3rem,
+  )
+);
+
+$sansSerif: (
+  family: "Helvetica, Arial, sans-serif",
+
+  size: (
+    small: 1rem,
+    regular: 1.2rem,
+
+    smallh2: 1.1rem,
+    smallh3: 1rem,
+
+    h2: clamp(2rem, 4vw, 4rem),
+    h4: 1.6rem
+  ),
+
+  lh: (
+    normal: 1.4,
+    normal-h4: 1.1,
+    compact: 1.2,
+    compact-small: 1,
+    compact-smallh3: 0.9,
+
+    compact-h4: 1
+  ),
+
+  weight: (
+    bold: font-variation-settings "wght" 600,
+  )
+);
+
+// Master font registry
+$fonts: (
+  sansSerif: $sansSerif,
+  serif: $serif
+);
+
+
+
+/// Get a value from a map, preferring a composite key like `base-sub`,
+/// falling back to `base`, and optionally to a default value.
+///
+/// @param {Map}    $map       The map to read from
+/// @param {String} $base-key  Primary key (e.g. `normal`, `compact`)
+/// @param {String} $sub-key   Secondary key (e.g. `small`, `regular`)
+/// @param {*}      $default   Optional default if nothing is found
+/// @param {String} $sep       Separator between base and sub (default "-")
+///
+/// @return {*} The found value
+@function tiered-map-get($map, $base-key, $sub-key: null, $default: null, $sep: "-") {
+  // 1. Try composite key, e.g. "compact-small"
+  @if $sub-key != null {
+    $composite-key: "#{$base-key}#{$sep}#{$sub-key}";
+
+    @if map.has-key($map, $composite-key) {
+      @return map.get($map, $composite-key);
+    }
+  }
+
+  // 2. Fall back to base key, e.g. "compact" or "normal"
+  @if map.has-key($map, $base-key) {
+    @return map.get($map, $base-key);
+  }
+
+  // 3. Optional explicit default
+  @if $default != null {
+    @return $default;
+  }
+
+  // 4. If we get here, nothing matched
+  @error "tiered-map-get: No value found for `#{$base-key}`"
+      + if($sub-key != null, " or `#{$base-key}#{$sep}#{$sub-key}`", "")
+      + " and no default was provided.";
+}
+
+
+
+@mixin font($settings-raw: ()) {
+  // Defaults for behavior (not for validation)
+  $defaults: (
+    font: sansSerif,
+    size: regular,
+    lh: normal
+  );
+
+  // Merge for actual values used
+  $settings: map.merge($defaults, $settings-raw);
+
+  // Which font config?
+  $font-key: map.get($settings, font);
+  $font-config: map.get($fonts, $font-key);
+
+  @if $font-config == null {
+    @error "font(): Unknown font `#{$font-key}` in $fonts map.";
+  }
+
+  // Family is required
+  $family: map.get($font-config, family);
+
+  @if $family == null {
+    @error "font(): Font config `#{$font-key}` has no `family` key.";
+  }
+
+  // 🔍 GENERIC VALIDATION:
+  // For every key the caller actually provided (in $settings-raw),
+  // make sure the font config has a corresponding map with the same name.
+  @each $key, $value in $settings-raw {
+    // Skip special keys that are not maps in the font config
+    @if $key != font and $key != family {
+      @if not map.has-key($font-config, $key) {
+        @error "font(): Font `#{$font-key}` does not define a `#{$key}` map, but `#{$key}` was passed in settings.";
+      }
+    }
+  }
+
+  // Now safely pull out the submaps (they're either defined or not used)
+  $size-map:    map.get($font-config, size);
+  $lh-map: map.get($font-config, lh);
+  $weight-map:  map.get($font-config, weight);
+
+  $size-key:    map.get($settings, size);
+  $lh-key: map.get($settings, lh);
+  $weight-key:  map.get($settings, weight);
+
+  // --- Actual CSS rules -----------------------------------------
+
+  font-family: $family;
+
+  // SIZE → font-size
+  @if $size-map != null {
+    $font-size: tiered-map-get(
+      $size-map,
+      $size-key,
+      null,
+      map.get($size-map, regular)
+    );
+    font-size: $font-size;
+  }
+
+  // lh → line-height
+  @if $lh-map != null {
+    $relative-lh: tiered-map-get(
+      $lh-map,
+      $lh-key,
+      $size-key
+    );
+    line-height: $relative-lh;
+  }
+
+  // WEIGHT → whatever you store (e.g. font-variation-settings)
+    // WEIGHT → whatever you store (e.g. font-variation-settings)
+  @if $weight-map != null and $weight-key != null {
+    $weight-val: tiered-map-get($weight-map, $weight-key);
+    font-variation-settings: $weight-val;
+  }
+
+}
+
+
+
+
+
+
+// Uses defaults: font:sansSerif, size:regular, lh:normal
+.foo {
+  @include font();
+}
+
+// Custom size + lh, still using the sansSerif font config
+.bar {
+  @include font((
+    size: small,
+    lh: compact
+  ));
+}
+
+h4 {
+  @include font((
+    font: sansSerif,
+    size: h4,
+    lh: compact
+  ));  
+}
+
+h4 {
+  @include font((
+    font: sansSerif,
+    size: h4,
+  ));  
+}
+
+
+
+// If you later add another font:
+// $fonts: (
+//   sansSerif: $sansSerif,
+//   otherSans: $otherSans
+// );
+//
+// .baz {
+//   @include sansSerif((
+//     font: otherSans,
+//     size: h2
+//   ));
+// }
